@@ -1,72 +1,65 @@
-# Whisper AI Local Song Translate
+# Song Translate
 
-Baixa o áudio de vídeos do YouTube, transcreve automaticamente com [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (com detecção automática de idioma) e traduz o resultado para **português brasileiro (PT-BR)**, usando [DeepL](https://www.deepl.com/) (online) ou [Argos Translate](https://github.com/argosopentech/argos-translate) (offline/local).
+Baixa o áudio de vídeos do YouTube, transcreve com [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (detecção automática de idioma) e traduz sempre para **português brasileiro (PT-BR)**, usando **DeepL** (online) ou **Argos Translate** (offline).
+
+Roda 100% em CPU, sem necessidade de GPU.
 
 ## Funcionalidades
 
-- Download de áudio direto do YouTube via `yt-dlp`
-- Transcrição local com `faster-whisper`, rodando em CPU (int8)
-- Tradução para PT-BR via DeepL (API) ou Argos Translate (100% offline)
-- Processamento em lote: uma URL ou várias, de linha de comando ou de um arquivo `.txt`
-- Erros individuais não interrompem o lote — o script segue para a próxima música e reporta um resumo no final
-
-## Saída
-
-Para cada música processada, o script gera dois arquivos em `--output-dir` (padrão: `./saida`):
-
-```
-<nome>_original.txt   # transcrição no idioma original
-<nome>_pt-br.txt       # tradução para PT-BR
-```
+- Download de áudio via `yt-dlp` (uma URL ou lote a partir de arquivo `.txt`)
+- Transcrição local com `faster-whisper` (modelos `tiny` a `large-v3`)
+- Detecção automática do idioma da música
+- Tradução para PT-BR com DeepL (melhor qualidade) ou Argos (offline)
+- Processamento em lote: erro em uma música não interrompe as demais
+- Saída em dois arquivos por música: transcrição original e tradução
 
 ## Requisitos
 
-- Python 3.11 ou 3.12
-- [FFmpeg](https://www.gyan.dev/ffmpeg/builds/) (ffmpeg + ffprobe no PATH)
-- [Deno](https://deno.com/) (runtime JS usado pelo `yt-dlp` para extração no YouTube)
-- Chave de API do DeepL, **apenas** se for usar `--engine deepl`
+| Item | Detalhe |
+|------|---------|
+| Python | 3.12 recomendado (3.14 pode dar problema com o `argostranslate`) |
+| ffmpeg | Obrigatório, precisa estar no `PATH` |
+| Deno | Opcional, só se o yt-dlp reclamar de JS runtime |
+| Internet | Necessária na primeira execução e para baixar do YouTube |
+| RAM | ~8 GB confortável para o modelo `small` |
 
 ## Instalação
 
-```bash
-# 1. Clone o repositório
-git clone <url-do-repo>
-cd Whisper-AI-Local-Song-Translate
+### 1. Instalar Python e ffmpeg (Windows)
 
-# 2. Crie e ative um ambiente virtual
-python -m venv venv
-
-# Windows (PowerShell)
-.\venv\Scripts\Activate.ps1
-
-# Linux / macOS
-source venv/bin/activate
-
-# 3. Instale as dependências Python
-pip install faster-whisper yt-dlp requests python-dotenv
-
-# Se for usar o engine "argos" (tradução offline):
-pip install argostranslate
+```powershell
+winget install Python.Python.3.12
+winget install Gyan.FFmpeg
 ```
 
-### FFmpeg
+Feche e reabra o terminal, depois confira:
 
-O `yt-dlp` depende do FFmpeg para extrair e converter o áudio.
+```powershell
+py -3.12 --version
+ffmpeg -version
+```
 
-- **Windows:** `winget install Gyan.FFmpeg`
-- **Linux (Debian/Ubuntu):** `sudo apt install ffmpeg`
-- **macOS:** `brew install ffmpeg`
+No Linux/macOS, instale o ffmpeg pelo gerenciador de pacotes (`apt install ffmpeg`, `brew install ffmpeg`).
 
-Confirme com `ffmpeg -version` e `ffprobe -version` em um terminal novo.
+### 2. Clonar o repositório e criar o ambiente virtual
 
-### Deno
+```powershell
+git clone https://github.com/SEU_USUARIO/SEU_REPOSITORIO.git
+cd SEU_REPOSITORIO
+py -3.12 -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
 
-Necessário para o `yt-dlp` resolver corretamente os desafios de extração do YouTube.
+Se o PowerShell bloquear a ativação do venv:
 
-- **Windows:** `winget install DenoLand.Deno`
-- **Linux / macOS:** veja [deno.com/manual/getting_started/installation](https://docs.deno.com/runtime/getting_started/installation/)
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
 
-## Configuração (apenas para o engine DeepL)
+No Linux/macOS: `python3 -m venv venv && source venv/bin/activate`.
+
+### 3. (Opcional) Configurar a chave do DeepL
 
 Crie um arquivo `.env` na raiz do projeto:
 
@@ -74,60 +67,84 @@ Crie um arquivo `.env` na raiz do projeto:
 DEEPL_API_KEY=sua_chave_aqui
 ```
 
-Alternativamente, passe a chave diretamente via `--deepl-key`. Se for usar apenas `--engine argos`, essa etapa não é necessária.
+> **Nunca** faça commit do `.env`. Ele já deve estar no `.gitignore`.
 
 ## Uso
 
-### Uma única música
+Uma música, com Argos (offline):
 
 ```bash
-python song_translate.py --urls "https://youtube.com/watch?v=XXXX" --engine argos --model small
+python song_translate.py --urls "https://youtu.be/XXXX" --engine argos --model small
 ```
 
-### Várias músicas de uma vez
+Uma música, com DeepL:
 
 ```bash
-python song_translate.py --urls "URL1" "URL2" "URL3" --engine argos --model small
+python song_translate.py --urls "https://youtu.be/XXXX" --engine deepl
 ```
 
-### Lote via arquivo de texto
-
-Crie um `lista.txt` com uma URL por linha (linhas iniciadas com `#` são ignoradas):
-
-```
-https://youtube.com/watch?v=XXXX
-https://youtube.com/watch?v=YYYY
-```
+Várias músicas (um link por linha em `lista.txt`, linhas com `#` são ignoradas):
 
 ```bash
 python song_translate.py --urls-file lista.txt --engine argos --model small
 ```
 
-### Usando o DeepL
+### Opções
 
-```bash
-python song_translate.py --urls "URL" --engine deepl --deepl-key SUACHAVE
+| Opção | Descrição | Padrão |
+|-------|-----------|--------|
+| `--urls` | Uma ou mais URLs do YouTube | - |
+| `--urls-file` | Arquivo `.txt` com uma URL por linha | - |
+| `--engine` | `deepl` (online) ou `argos` (offline) | `deepl` |
+| `--deepl-key` | Chave da API DeepL (ou use `DEEPL_API_KEY`) | - |
+| `--model` | Modelo do Whisper: `tiny`, `base`, `small`, `medium`, `large-v3` | `small` |
+| `--output-dir` | Pasta de saída | `saida` |
+| `--keep-audio` | Mantém os `.mp3` baixados | desligado |
+
+## Saída
+
+Para cada música, em `saida/`:
+
+```
+<nome>_original.txt   # transcrição no idioma original
+<nome>_pt-br.txt      # tradução para PT-BR
 ```
 
-## Argumentos disponíveis
+Ao final, o script mostra um resumo com sucessos e falhas.
 
-| Argumento | Descrição |
-|---|---|
-| `--urls` | Uma ou mais URLs do YouTube |
-| `--urls-file` | Arquivo `.txt` com uma URL por linha |
-| `--engine` | `deepl` (online, melhor qualidade) ou `argos` (offline). Padrão: `deepl` |
-| `--deepl-key` | Chave da API DeepL (ou defina `DEEPL_API_KEY` no `.env`) |
-| `--model` | Modelo do faster-whisper: `tiny`, `base`, `small`, `medium`, `large-v3`. Recomendado `small` para CPU |
-| `--output-dir` | Pasta de saída dos arquivos traduzidos. Padrão: `saida` |
-| `--keep-audio` | Mantém os arquivos `.mp3` baixados (por padrão são apagados após o processamento) |
+## Primeira execução
 
-## Notas
+- O modelo do Whisper é baixado do Hugging Face (`small` ≈ 500 MB) e fica em cache.
+- O Argos baixa o pacote do idioma detectado → português na primeira vez que o vê. Depois disso, a tradução funciona offline.
 
-- Na primeira execução com `--engine argos`, o Argos Translate baixa automaticamente o pacote de idioma necessário (requer internet nessa etapa).
-- O modelo do faster-whisper também é baixado automaticamente na primeira execução.
-- O script roda sempre em CPU (`device="cpu"`); não há suporte a GPU/CUDA nesta versão.
-- Se aparecer `HTTP Error 403: Forbidden` ao baixar do YouTube, atualize o `yt-dlp` (`pip install -U yt-dlp`) e confirme que o Deno está instalado e no PATH.
+## Solução de problemas
+
+| Erro | Causa e solução |
+|------|-----------------|
+| `WinError 2` ao baixar | O `yt-dlp.exe` não está no PATH. O script já chama `python -m yt_dlp`, então confirme que `pip install yt-dlp` rodou no venv ativo. |
+| `ffprobe and ffmpeg not found` | Instale o ffmpeg (`winget install Gyan.FFmpeg`) e reabra o terminal. |
+| `No supported JavaScript runtime` (warning) | Geralmente inofensivo. Se faltar formato, instale o Deno (`winget install DenoLand.Deno`) e atualize o yt-dlp (`pip install -U yt-dlp`). |
+| `No module named 'faster_whisper'` | O venv não está ativo, ou as dependências foram instaladas em outro Python. Ative o venv e rode `pip install -r requirements.txt`. |
+| `unexpected keyword argument 'metadata_errors'` | Incompatibilidade entre `faster-whisper` e `av`. O script contorna isso decodificando o áudio via ffmpeg. |
+| `did not find executable at ...python.exe` | O venv foi copiado de outra máquina. Apague a pasta `venv` e crie de novo. |
+| `argostranslate` falha ao instalar | Use Python 3.12 (`py -3.12 -m venv venv`). |
+
+## Estrutura do projeto
+
+```
+.
+├── song_translate.py
+├── requirements.txt
+├── README.md
+├── .env            # local, não versionado
+├── lista.txt       # opcional, lote de URLs
+└── saida/          # gerado, não versionado
+```
+
+## Aviso
+
+Use apenas com conteúdo que você tem direito de baixar e processar, respeitando os termos de uso do YouTube e os direitos autorais das obras. As traduções automáticas são aproximadas e podem errar gírias e expressões poéticas.
 
 ## Licença
 
-Defina aqui a licença do projeto (ex: MIT, GPL-3.0, ou "uso pessoal").
+Defina a licença do projeto (por exemplo, MIT) e adicione um arquivo `LICENSE`.

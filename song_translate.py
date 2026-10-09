@@ -6,9 +6,10 @@ automatica de idioma) e traduz sempre para portugues brasileiro (PT-BR),
 usando DeepL (online) ou Argos Translate (offline/local).
 
 Requisitos:
-    pip install faster-whisper yt-dlp requests
+    pip install faster-whisper yt-dlp requests numpy
     # se for usar o engine "argos":
     pip install argostranslate
+    # ffmpeg precisa estar no PATH (winget install Gyan.FFmpeg)
 
 Uso basico (uma unica musica):
     python song_translate.py --urls "https://youtube.com/watch?v=XXXX" --engine deepl --deepl-key SUACHAVE
@@ -33,6 +34,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
 import requests
 
 try:
@@ -51,6 +53,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("song_translate")
 
+# yt-dlp e chamado como modulo do mesmo Python que roda o script,
+# assim nao depende do yt-dlp.exe estar no PATH.
+YTDLP = [sys.executable, "-m", "yt_dlp"]
+
 
 # --------------------------------------------------------------------------
 # Utilitarios
@@ -60,6 +66,12 @@ def slugify(text: str, maxlen: int = 60) -> str:
     text = re.sub(r"[^\w\s-]", "", text, flags=re.UNICODE).strip()
     text = re.sub(r"[\s]+", "_", text)
     return text[:maxlen] if text else "musica"
+
+
+def only_errors(stderr: str) -> str:
+    """Filtra o stderr do yt-dlp e mantem so as linhas ERROR (ignora WARNING)."""
+    lines = [ln for ln in stderr.splitlines() if ln.startswith("ERROR")]
+    return "\n".join(lines) if lines else stderr.strip()
 
 
 def read_urls(args: argparse.Namespace) -> list[str]:
@@ -89,26 +101,30 @@ def download_audio(url: str, workdir: Path) -> Path:
 
     # Pega o titulo primeiro, pra sabermos o nome final do arquivo.
     title_proc = subprocess.run(
-        ["yt-dlp", "--get-title", url],
+        YTDLP + ["--get-title", url],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=60,
     )
     if title_proc.returncode != 0:
-        raise RuntimeError(f"yt-dlp falhou ao obter titulo: {title_proc.stderr.strip()}")
+        raise RuntimeError(f"yt-dlp falhou ao obter titulo: {only_errors(title_proc.stderr)}")
     title = title_proc.stdout.strip() or "musica"
 
     dl_proc = subprocess.run(
-        [
-            "yt-dlp", "-x", "--audio-format", "mp3",
+        YTDLP + [
+            "-x", "--audio-format", "mp3",
             "-o", out_template, url,
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=600,
     )
     if dl_proc.returncode != 0:
-        raise RuntimeError(f"yt-dlp falhou ao baixar audio: {dl_proc.stderr.strip()}")
+        raise RuntimeError(f"yt-dlp falhou ao baixar audio: {only_errors(dl_proc.stderr)}")
 
     mp3_path = workdir / f"{title}.mp3"
     if not mp3_path.exists():
@@ -124,6 +140,25 @@ def download_audio(url: str, workdir: Path) -> Path:
 # --------------------------------------------------------------------------
 # Etapa 2: transcricao com faster-whisper
 # --------------------------------------------------------------------------
+def load_audio_ffmpeg(path: Path, sr: int = 16000) -> np.ndarray:
+    """Decodifica o audio via ffmpeg para PCM float32 mono 16 kHz.
+
+    Evita depender do PyAV (modulo 'av'), que pode estar incompativel com
+    a versao do faster-whisper instalada.
+    """
+    cmd = [
+        "ffmpeg", "-nostdin", "-i", str(path),
+        "-f", "s16le", "-ac", "1", "-acodec", "pcm_s16le", "-ar", str(sr), "-",
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError("ffmpeg nao encontrado no PATH. Instale com: winget install Gyan.FFmpeg") from exc
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg falhou ao decodificar: {proc.stderr.decode(errors='ignore')[-300:]}")
+    return np.frombuffer(proc.stdout, np.int16).astype(np.float32) / 32768.0
+
+
 def transcribe(audio_path: Path, model_size: str) -> tuple[str, str]:
     """Transcreve o audio e retorna (texto, idioma_detectado)."""
     from faster_whisper import WhisperModel
@@ -132,7 +167,8 @@ def transcribe(audio_path: Path, model_size: str) -> tuple[str, str]:
     # dedicada e com pouca memoria livre.
     model = WhisperModel(model_size, device="cpu", compute_type="int8")
 
-    segments, info = model.transcribe(str(audio_path), beam_size=5)
+    audio = load_audio_ffmpeg(audio_path)
+    segments, info = model.transcribe(audio, beam_size=5)
     text_lines = [seg.text.strip() for seg in segments]
     full_text = "\n".join(text_lines)
 
